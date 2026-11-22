@@ -1,7 +1,7 @@
 name: Meowto Ranger Android CI
 on:
   push:
-    branches: [main]
+    branches: [main, 'feature/**', 'fix/**']
     paths:
       - 'app/**'
       - 'build.gradle.kts'
