@@ -89,18 +89,20 @@ object Matcher {
         val y0 = max(0, by - r); val y1 = min(f.h - t.h, by + r)
         if (x0 > x1 || y0 > y1) return null
         // Coarse pass every 2 px with a relaxed cap, then refine around the best spot.
+        // Equal scores (identical buttons in a list) go to the one nearest the taught position.
         var best = limit * 2 + 10
         var bestX = -1; var bestY = -1
-        for (y in y0..y1 step 2) for (x in x0..x1 step 2) {
+        var bestDist = Int.MAX_VALUE
+        fun consider(x: Int, y: Int) {
             val d = diff(f, t, x, y, best)
-            if (d < best) { best = d; bestX = x; bestY = y }
+            if (d > best) return
+            val dist = abs(x - bx) + abs(y - by)
+            if (d < best || dist < bestDist) { best = d; bestX = x; bestY = y; bestDist = dist }
         }
+        for (y in y0..y1 step 2) for (x in x0..x1 step 2) consider(x, y)
         if (bestX < 0) return null
         val cx = bestX; val cy = bestY
-        for (y in max(y0, cy - 1)..min(y1, cy + 1)) for (x in max(x0, cx - 1)..min(x1, cx + 1)) {
-            val d = diff(f, t, x, y, best)
-            if (d < best) { best = d; bestX = x; bestY = y }
-        }
+        for (y in max(y0, cy - 1)..min(y1, cy + 1)) for (x in max(x0, cx - 1)..min(x1, cx + 1)) consider(x, y)
         return if (best <= limit) Match(bestX + target.ox, bestY + target.oy, best) else null
     }
 }

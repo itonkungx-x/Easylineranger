@@ -14,7 +14,19 @@ class RoutineModelTest {
         val px = IntArray(w * h) { (0xFF shl 24) or rnd.nextInt(0x1000000) }
         for (y in by - 20..by + 20) for (x in bx - 24..bx + 24)
             if (x in 0 until w && y in 0 until h)
-                px[y * w + x] = if ((x - bx + y - by + 70) % 7 == 0) 0xFFFFFFFF.toInt() else buttonColor
+                px[y * w + x] = if (texture(x - bx, y - by)) 0xFFFFFFFF.toInt() else buttonColor
+        return Img(w, h, px)
+    }
+
+    /** Non-repeating texture that moves with the button. */
+    private fun texture(dx: Int, dy: Int) = (((dx + 100) * 73856093 xor (dy + 100) * 19349663) ushr 4) % 5 == 0
+
+    /** Several identical buttons side by side (e.g. a list of "claim" buttons). */
+    private fun row(w: Int, h: Int, xs: List<Int>, y: Int, color: Int): Img {
+        val rnd = Random(9)
+        val px = IntArray(w * h) { (0xFF shl 24) or rnd.nextInt(0x1000000) }
+        for (bx in xs) for (yy in y - 20..y + 20) for (x in bx - 24..bx + 24)
+            px[yy * w + x] = if (texture(x - bx, yy - y)) 0xFFFFFFFF.toInt() else color
         return Img(w, h, px)
     }
 
@@ -28,6 +40,15 @@ class RoutineModelTest {
         assertNotNull(m)
         assertEquals(283, m!!.x)
         assertEquals(209, m.y)
+    }
+
+    @Test fun identicalButtonsPreferTheTaughtOne() {
+        val green = 0xFF2EBF4A.toInt()
+        val img = row(640, 360, listOf(250, 310, 370), 200, green)
+        val target = Looks.cut(img, 310f / 640, 200f / 360)
+        val m = Matcher.find(img, target, 0.2f, Matcher.STRICT)
+        assertNotNull(m)
+        assertEquals(310, m!!.x)
     }
 
     @Test fun rejectsDifferentButton() {
