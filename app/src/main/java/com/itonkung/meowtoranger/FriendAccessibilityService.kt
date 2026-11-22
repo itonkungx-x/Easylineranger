@@ -23,6 +23,12 @@ import android.widget.Toast
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.itonkung.meowtoranger.modules.routine.Img
+import com.itonkung.meowtoranger.modules.routine.Looks
+import com.itonkung.meowtoranger.modules.routine.RoutineHost
+import com.itonkung.meowtoranger.modules.routine.RoutinePlayer
+import com.itonkung.meowtoranger.modules.routine.RoutineRecorder
+import com.itonkung.meowtoranger.modules.routine.RoutineStore
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -34,7 +40,7 @@ import kotlin.math.roundToInt
  * daily limit. Unrecognized pages enter a non-tapping recovery state instead
  * of deactivating a run; the user can always press the floating Stop button.
  */
-class FriendAccessibilityService : AccessibilityService() {
+class FriendAccessibilityService : AccessibilityService(), RoutineHost {
     companion object {
         const val GAME_PACKAGE = "com.linecorp.LGRGS"
         private const val DAILY_LIMIT = 50
@@ -67,6 +73,14 @@ class FriendAccessibilityService : AccessibilityService() {
     private var overlayDetail: TextView? = null
     private var overlayGo: TextView? = null
     private var overlayStop: TextView? = null
+    private val idleButtons = mutableListOf<View>()
+    private val teachChoiceButtons = mutableListOf<View>()
+    private val teachingButtons = mutableListOf<View>()
+    private var teachChoice = false
+    private var recorder: RoutineRecorder? = null
+    private var player: RoutinePlayer? = null
+    /** "Do everything" queue: friend points, then daily routine, then stage farming. */
+    private val chain = ArrayDeque<String>()
 
     private var running = false
     private var hasSeenGame = false
@@ -139,6 +153,7 @@ class FriendAccessibilityService : AccessibilityService() {
 
     private fun disableForOtherApps(reason: String) {
         cancelAutoOff()
+        endRoutineWork()
         running = false
         epoch++
         handler.removeCallbacksAndMessages(null)
@@ -174,7 +189,7 @@ class FriendAccessibilityService : AccessibilityService() {
             showOverlay()
         } else {
             currentGamePackage = pkg
-            if (!running) hideOverlay()
+            if (!running && player == null && recorder == null) hideOverlay()
             // Do not leave a screenshot-capable service enabled in other apps.
             // The user's banking app checks the actual Accessibility setting.
             if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) scheduleAutoOff()
@@ -192,6 +207,7 @@ class FriendAccessibilityService : AccessibilityService() {
     }
     override fun onDestroy() {
         if (activeService === this) activeService = null
+        endRoutineWork()
         running = false
         epoch++
         handler.removeCallbacksAndMessages(null)
@@ -231,23 +247,41 @@ class FriendAccessibilityService : AccessibilityService() {
         val detail = label("พร้อม", Color.rgb(255, 175, 57), 10f, true).apply {
             setPadding(dp(5), 0, dp(8), 0)
         }
-        val go = label("▶", Color.rgb(24, 20, 16), 19f, true).apply {
+        val go = label("♥", Color.rgb(24, 20, 16), 19f, true).apply {
             setPadding(dp(10), dp(8), dp(10), dp(8))
             background = bg(Color.rgb(255, 173, 37), 12)
-            setOnClickListener { startRun() }
+            setOnClickListener { chain.clear(); startRun() }
         }
         val stop = label("■", Color.WHITE, 17f, true).apply {
             setPadding(dp(10), dp(8), dp(10), dp(8))
             background = bg(Color.rgb(197, 53, 62), 12)
-            setOnClickListener { stopRun("ผู้ใช้กดหยุด") }
+            setOnClickListener { stopEverything() }
         }
+        fun small(text: String, color: Int, click: () -> Unit) = label(text, Color.WHITE, 15f, true).apply {
+            setPadding(dp(9), dp(8), dp(9), dp(8))
+            background = bg(color, 12)
+            setOnClickListener { click() }
+        }
+        val dark = Color.rgb(52, 56, 66)
+        idleButtons.clear(); teachChoiceButtons.clear(); teachingButtons.clear()
+        idleButtons += go
+        idleButtons += small("📋", dark) { chain.clear(); startRoutine(RoutineStore.DAILY) }
+        idleButtons += small("⚔", dark) { chain.clear(); startRoutine(RoutineStore.FARM) }
+        idleButtons += small("▶▶", Color.rgb(46, 140, 87)) { startAll() }
+        idleButtons += small("🎓", dark) { teachChoice = true; updateOverlay() }
+        teachChoiceButtons += small("สอน 📋", dark) { startTeach(RoutineStore.DAILY) }
+        teachChoiceButtons += small("สอน ⚔", dark) { startTeach(RoutineStore.FARM) }
+        teachChoiceButtons += small("✕", dark) { teachChoice = false; updateOverlay() }
+        teachingButtons += small("✓ บันทึก", Color.rgb(46, 140, 87)) { finishTeach(save = true) }
+        teachingButtons += small("✕", Color.rgb(197, 53, 62)) { finishTeach(save = false) }
         overlayCount = count
         overlayDetail = detail
         overlayGo = go
         overlayStop = stop
         line.addView(count)
         line.addView(detail)
-        line.addView(go)
+        for (b in idleButtons + teachChoiceButtons + teachingButtons)
+            line.addView(b, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(4) })
         line.addView(stop, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(4) })
         val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -282,17 +316,26 @@ class FriendAccessibilityService : AccessibilityService() {
         overlayStop = null
     }
     private fun updateOverlay() {
+        val rec = recorder
+        val play = player
+        val busy = running || play != null
         overlayCount?.text = "${used?.toString() ?: "?"}/$maxQuota"
         overlayDetail?.text = when {
+            rec != null -> "● สอน ${rec.count}"
+            play != null -> "● ${play.label}"
+            teachChoice -> "สอนอะไร?"
             !running -> "พร้อม"
             phase == Phase.NAVIGATE -> "↩ กลับหน้าเพื่อน"
             phase == Phase.RECOGNIZING -> "◌ ตรวจเลข"
             phase == Phase.SCROLL_SETTLE -> "◌ รอเลื่อน"
             else -> "● ทำงาน"
         }
-        overlayDetail?.setTextColor(if (running) Color.rgb(107, 233, 148) else Color.rgb(255, 175, 57))
-        overlayGo?.visibility = if (running) View.GONE else View.VISIBLE
-        overlayStop?.visibility = if (running) View.VISIBLE else View.GONE
+        overlayDetail?.setTextColor(if (busy || rec != null) Color.rgb(107, 233, 148) else Color.rgb(255, 175, 57))
+        fun show(views: List<View>, on: Boolean) = views.forEach { it.visibility = if (on) View.VISIBLE else View.GONE }
+        show(idleButtons, !busy && rec == null && !teachChoice)
+        show(teachChoiceButtons, !busy && rec == null && teachChoice)
+        show(teachingButtons, rec != null)
+        overlayStop?.visibility = if (busy) View.VISIBLE else View.GONE
     }
     private fun saveState(message: String) {
         lastStatus = message
@@ -311,7 +354,7 @@ class FriendAccessibilityService : AccessibilityService() {
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
     private fun startRun() {
-        if (running) return
+        if (running || player != null || recorder != null) return
         val pkg = rootInActiveWindow?.packageName?.toString() ?: currentGamePackage
         if (pkg != GAME_PACKAGE) {
             toast("เปิด LINE Rangers และเข้าเมนู เพื่อน ก่อน")
@@ -365,6 +408,174 @@ class FriendAccessibilityService : AccessibilityService() {
         // session from the floating button. The user can revoke it in-app.
         saveState(reason)
         if (old) toast("$reason • ส่งสำเร็จ $sent ครั้ง")
+        if (old) continueChain()
+    }
+
+    // ---- Teach mode / taught routines -------------------------------------------------
+
+    private fun gameInFront() = rootInActiveWindow?.packageName?.toString() == GAME_PACKAGE
+
+    private fun stopEverything() {
+        chain.clear()
+        teachChoice = false
+        player?.stop("ผู้ใช้กดหยุด")
+        if (running) stopRun("ผู้ใช้กดหยุด")
+        updateOverlay()
+    }
+
+    /** Stops teach/replay without saving or continuing the chain (leaving the game, service shutdown). */
+    private fun endRoutineWork() {
+        chain.clear()
+        teachChoice = false
+        recorder?.close()
+        recorder = null
+        val p = player
+        player = null
+        p?.stop("หยุด")
+    }
+
+    private fun startAll() {
+        chain.clear()
+        if (prefs.getBoolean("consent", false)) chain.addLast("friend")
+        if (RoutineStore.stepCount(this, RoutineStore.DAILY) > 0) chain.addLast(RoutineStore.DAILY)
+        if (RoutineStore.stepCount(this, RoutineStore.FARM) > 0) chain.addLast(RoutineStore.FARM)
+        if (chain.isEmpty()) { toast("ยังไม่มีอะไรให้ทำ · อนุญาตส่ง LINE ในแอป หรือสอนบอทด้วย 🎓 ก่อน"); return }
+        continueChain()
+    }
+
+    private fun continueChain() {
+        val next = chain.removeFirstOrNull() ?: return
+        handler.postDelayed({
+            if (next == "friend") {
+                startRun()
+                if (!running) continueChain()
+            } else if (!startRoutine(next)) continueChain()
+        }, 1500)
+    }
+
+    private fun startRoutine(id: String): Boolean {
+        if (running || player != null || recorder != null) return false
+        if (!gameInFront()) { toast("เปิด LINE Rangers ก่อน"); return false }
+        val routine = RoutineStore.load(this, id)
+        if (routine == null) { toast("ยังไม่ได้สอน ${RoutineStore.title(id)} · กด 🎓 เพื่อสอน"); return false }
+        lateinit var p: RoutinePlayer
+        p = RoutinePlayer(this, routine, onEnd = end@{ reason ->
+            if (player !== p) return@end
+            player = null
+            saveState(reason)
+            toast(reason)
+            if (reason != "ผู้ใช้กดหยุด") continueChain()
+        })
+        player = p
+        p.start()
+        updateOverlay()
+        return true
+    }
+
+    private fun startTeach(id: String) {
+        teachChoice = false
+        if (running || player != null || recorder != null) return
+        if (!gameInFront()) { toast("เปิด LINE Rangers ก่อน"); updateOverlay(); return }
+        val wm = windowManager ?: return
+        val rec = RoutineRecorder(this, wm, this, id)
+        // The control bar must sit above the touch-catching layer, so re-add it after.
+        hideOverlay()
+        if (!rec.start()) { toast("เริ่มโหมดสอนไม่ได้"); showOverlay(); return }
+        recorder = rec
+        showOverlay()
+        saveState("สอน ${RoutineStore.title(id)} · เล่นตามปกติ แล้วกด ✓ บันทึก")
+        toast("เริ่มสอน ${RoutineStore.title(id)} · เริ่มจากหน้าหลักและจบที่หน้าหลัก")
+    }
+
+    private fun finishTeach(save: Boolean) {
+        val rec = recorder ?: return
+        recorder = null
+        val message = if (save) {
+            val n = rec.finish()
+            if (n > 0) "บันทึก ${RoutineStore.title(rec.routineId)} แล้ว $n ขั้น" else "ไม่มีขั้นที่บันทึกได้"
+        } else { rec.close(); "ยกเลิกการสอน" }
+        saveState(message)
+        toast(message)
+    }
+
+    override fun later(ms: Long, block: () -> Unit) { handler.postDelayed(block, ms) }
+
+    override fun grab(onFrame: (Img?) -> Unit) {
+        val bar = overlay
+        if (recorder == null || bar == null) { grabFrame(onFrame, 0); return }
+        // While teaching, keep the control bar out of the remembered button looks.
+        bar.visibility = View.INVISIBLE
+        handler.postDelayed({
+            grabFrame({ frame -> bar.visibility = View.VISIBLE; onFrame(frame) }, 0)
+        }, 50)
+    }
+
+    private fun grabFrame(onFrame: (Img?) -> Unit, attempt: Int) {
+        if (!gameInFront()) { onFrame(null); return }
+        val retry = {
+            // Android limits how often Accessibility may take screenshots.
+            if (attempt < 4) handler.postDelayed({ grabFrame(onFrame, attempt + 1) }, 350) else onFrame(null)
+        }
+        try {
+            takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+                override fun onSuccess(result: ScreenshotResult) {
+                    val buffer = result.hardwareBuffer
+                    val frame = try {
+                        val hardware = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
+                        val soft = hardware?.copy(Bitmap.Config.ARGB_8888, false)
+                        hardware?.recycle()
+                        soft?.let {
+                            screenW = it.width
+                            screenH = it.height
+                            val h = Looks.FRAME_H
+                            val w = (it.width * h.toFloat() / it.height).roundToInt()
+                            val small = Bitmap.createScaledBitmap(it, w, h, true)
+                            it.recycle()
+                            val px = IntArray(w * h)
+                            small.getPixels(px, 0, w, 0, 0, w, h)
+                            small.recycle()
+                            Img(w, h, px)
+                        }
+                    } catch (_: Exception) { null } finally { buffer.close() }
+                    onFrame(frame)
+                }
+                override fun onFailure(errorCode: Int) { retry() }
+            })
+        } catch (_: Exception) { retry() }
+    }
+
+    override fun tap(nx: Float, ny: Float, onDone: (Boolean) -> Unit) {
+        val b = windowManager?.currentWindowMetrics?.bounds ?: run { onDone(false); return }
+        injectGesture(Path().apply { moveTo(nx * b.width(), ny * b.height()) }, 60, onDone)
+    }
+
+    override fun swipe(nx: Float, ny: Float, nx2: Float, ny2: Float, ms: Long, onDone: (Boolean) -> Unit) {
+        val b = windowManager?.currentWindowMetrics?.bounds ?: run { onDone(false); return }
+        injectGesture(Path().apply {
+            moveTo(nx * b.width(), ny * b.height())
+            lineTo(nx2 * b.width(), ny2 * b.height())
+        }, ms, onDone)
+    }
+
+    override fun back() {
+        if (gameInFront()) performGlobalAction(GLOBAL_ACTION_BACK)
+    }
+
+    override fun status(message: String) {
+        statusOnce(message)
+        updateOverlay()
+    }
+
+    /** Never injects input outside LINE Rangers. */
+    private fun injectGesture(path: Path, duration: Long, onDone: (Boolean) -> Unit) {
+        if (!gameInFront()) { handler.post { onDone(false) }; return }
+        val stroke = GestureDescription.StrokeDescription(path, 0, duration)
+        val accepted = dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(),
+            object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) { onDone(true) }
+                override fun onCancelled(gestureDescription: GestureDescription?) { onDone(false) }
+            }, handler)
+        if (!accepted) handler.post { onDone(false) }
     }
 
     private fun enqueue(ms: Long) {

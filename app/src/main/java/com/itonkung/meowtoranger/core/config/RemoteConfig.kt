@@ -12,7 +12,7 @@ import java.net.URL
 class RemoteConfig(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("auto", Context.MODE_PRIVATE)
     private val source =
-        "https://raw.githubusercontent.com/itonkungx-x/Meowto-Ranger/main/config/friend-points.json"
+        "https://raw.githubusercontent.com/itonkungx-x/Easylineranger/main/config/friend-points.json"
 
     fun refreshInBackground() {
         Thread {

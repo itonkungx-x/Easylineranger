@@ -3,6 +3,7 @@ package com.itonkung.meowtoranger
 import com.itonkung.meowtoranger.core.update.AppUpdater
 import com.itonkung.meowtoranger.core.config.RemoteConfig
 import com.itonkung.meowtoranger.modules.ModuleRegistry
+import com.itonkung.meowtoranger.modules.routine.RoutineStore
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Activity
 import android.app.AlertDialog
@@ -45,7 +46,13 @@ class MainActivity : Activity() {
         buildScreen()
         RemoteConfig(this).refreshInBackground()
     }
-    override fun onResume() { super.onResume(); updater.post(refresh) }
+    override fun onResume() { super.onResume(); refreshRoutines(); updater.post(refresh) }
+    private val routineInfo = mutableListOf<TextView>()
+    private fun refreshRoutines() = routineInfo.forEach {
+        val id = it.tag as String
+        val n = RoutineStore.stepCount(this, id)
+        it.text = "${RoutineStore.title(id)} · " + if (n > 0) "สอนแล้ว $n ขั้น" else "ยังไม่ได้สอน"
+    }
     override fun onPause() { updater.removeCallbacks(refresh); super.onPause() }
     private val refresh = object : Runnable {
         override fun run() {
@@ -169,10 +176,33 @@ class MainActivity : Activity() {
         }, margin(10, 0))
         content.addView(text("ระบบจะปิด Accessibility เองเมื่อออกจาก LINE Rangers แต่ Android ต้องให้คุณเปิดสิทธิ์กลับผ่านการตั้งค่า", 12f, muted), margin(12, 10))
 
+        content.addView(text("สอนบอท (🎓)", 11f, muted, true), margin(16, 8))
+        content.addView(text("1. ในเกมกด 🎓 แล้วเลือก สอน 📋 (ภารกิจ) หรือ สอน ⚔ (ฟาร์มด่าน)\n" +
+            "2. เริ่มจากหน้าหลัก เล่นตามปกติหนึ่งรอบ แล้วกลับมาหน้าหลัก\n" +
+            "3. กด ✓ บันทึก · ครั้งต่อไปกด 📋 / ⚔ หรือ ▶▶ ทำทั้งหมด\n" +
+            "ห้ามแตะปุ่มที่ใช้ Ruby ตอนสอน · บอทแตะเฉพาะปุ่มที่หน้าตาเหมือนตอนสอน", 12f, white), margin(0, 8))
+        for (id in listOf(RoutineStore.DAILY, RoutineStore.FARM)) {
+            val row = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+            val info = text("", 13f, white).apply { tag = id }
+            routineInfo += info
+            row.addView(info, LinearLayout.LayoutParams(0, -2, 1f))
+            row.addView(text("ลบ", 13f, amber, true).apply {
+                setPadding(dp(14), dp(8), dp(4), dp(8))
+                setOnClickListener {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setMessage("ลบสิ่งที่สอนไว้สำหรับ ${RoutineStore.title(id)}?")
+                        .setPositiveButton("ลบ") { _, _ -> RoutineStore.delete(this@MainActivity, id); refreshRoutines() }
+                        .setNegativeButton("ยกเลิก", null)
+                        .show()
+                }
+            })
+            content.addView(row, margin(0, 2))
+        }
+
         content.addView(button("ตรวจสอบอัปเดต", false) {
             AppUpdater(this).checkForUpdates()
         }, margin(10, 5))
-        content.addView(text("กด ▶ ในเกมเพื่อเริ่ม · กด ■ เพื่อหยุด · ออกจากเกมเพื่อปิดสิทธิ์", 12f, muted).apply {
+        content.addView(text("ในเกม: ♥ ส่งคะแนน · 📋 ภารกิจ · ⚔ ฟาร์ม · ▶▶ ทำทั้งหมด · ■ หยุด", 12f, muted).apply {
             gravity = Gravity.CENTER
             setPadding(0, dp(21), 0, 0)
         })
@@ -202,7 +232,7 @@ class MainActivity : Activity() {
     private fun authorizeThenOpen() {
         AlertDialog.Builder(this)
             .setTitle("ส่งข้อความ LINE ถึงเพื่อน")
-            .setMessage("เมื่อกด ▶ ในเกม แอปจะกดช่วยเหลือและส่งข้อความ LINE ถึงเพื่อนโดยอัตโนมัติจนเต็มโควต้า สามารถกด ■ เพื่อหยุดได้ตลอด")
+            .setMessage("เมื่อกด ♥ (หรือ ▶▶) ในเกม แอปจะกดช่วยเหลือและส่งข้อความ LINE ถึงเพื่อนโดยอัตโนมัติจนเต็มโควต้า สามารถกด ■ เพื่อหยุดได้ตลอด")
             .setPositiveButton("อนุญาตและเปิดเกม") { _, _ ->
                 prefs.edit().putBoolean("consent", true).apply()
                 val intent = packageManager.getLaunchIntentForPackage(FriendAccessibilityService.GAME_PACKAGE)

@@ -13,6 +13,8 @@ data class RangerModule(
 
 object ModuleRegistry {
     val modules = listOf(
-        RangerModule("friend_points", "คะแนนมิตรภาพ", "ส่งคะแนนตามโควต้าประจำวัน", true)
+        RangerModule("friend_points", "♥ คะแนนมิตรภาพ", "ส่งคะแนนตามโควต้าประจำวัน", true),
+        RangerModule("daily", "📋 ภารกิจประจำวัน", "เล่นซ้ำตามที่สอนไว้ด้วย 🎓", true),
+        RangerModule("farm", "⚔ ฟาร์มด่าน", "วนเล่นด่านตามที่สอนจนพลังงานหมด", true)
     )
 }

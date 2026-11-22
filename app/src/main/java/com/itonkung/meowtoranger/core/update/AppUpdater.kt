@@ -22,7 +22,7 @@ import java.util.Locale
  * The Android installer enforces matching signing certificates.
  */
 class AppUpdater(private val activity: Activity) {
-    private val latestUrl = "https://api.github.com/repos/itonkungx-x/Meowto-Ranger/releases/latest"
+    private val latestUrl = "https://api.github.com/repos/itonkungx-x/Easylineranger/releases/latest"
     private val maxBytes = 150L * 1024L * 1024L
     private val updatesDir get() = File(activity.cacheDir, "updates")
     private val pendingInstall get() = activity.getSharedPreferences("meowto_updates", Activity.MODE_PRIVATE)
@@ -83,7 +83,7 @@ class AppUpdater(private val activity: Activity) {
         val expectedDigest = resolveDigest(assets, apkName, digest)
         val checked = URL(downloadUrl)
         require(checked.protocol == "https" && checked.host.equals("github.com", true) &&
-            checked.path.startsWith("/itonkungx-x/Meowto-Ranger/releases/download/")) {
+            checked.path.startsWith("/itonkungx-x/Easylineranger/releases/download/")) {
             "แหล่งอัปเดตไม่ตรงกับ GitHub ที่กำหนด"
         }
         activity.runOnUiThread {
@@ -99,7 +99,7 @@ class AppUpdater(private val activity: Activity) {
 
     private fun checkLatestPreview(installed: String, silent: Boolean) {
         // Use a successful CI run, never claim an unbuilt commit is available.
-        val runsUrl = "https://api.github.com/repos/itonkungx-x/Meowto-Ranger/actions/workflows/build.yml/runs?branch=main&status=success&per_page=8"
+        val runsUrl = "https://api.github.com/repos/itonkungx-x/Easylineranger/actions/workflows/build.yml/runs?branch=main&status=success&per_page=8"
         val runs = JSONObject(fetchJson(runsUrl)).optJSONArray("workflow_runs")
         if (runs == null || runs.length() == 0) {
             if (!silent) toast("ยังไม่มีไฟล์ APK จาก GitHub Actions")
@@ -111,13 +111,13 @@ class AppUpdater(private val activity: Activity) {
             val sha = run.optString("head_sha")
             val id = run.optLong("id")
             if (!Regex("^[0-9a-f]{40}$").matches(sha) || id <= 0) continue
-            val gradle = fetchJson("https://raw.githubusercontent.com/itonkungx-x/Meowto-Ranger/$sha/app/build.gradle.kts")
+            val gradle = fetchJson("https://raw.githubusercontent.com/itonkungx-x/Easylineranger/$sha/app/build.gradle.kts")
             val candidate = Regex("""versionName\s*=\s*"([^"]+)"""").find(gradle)?.groupValues?.get(1) ?: continue
             if (compareVersions(candidate, installed) <= 0) {
                 if (!silent) toast("ใช้งานเวอร์ชันล่าสุดแล้ว ($installed) · ยังไม่มี Release ทางการ")
                 return
             }
-            val page = "https://github.com/itonkungx-x/Meowto-Ranger/actions/runs/$id"
+            val page = "https://github.com/itonkungx-x/Easylineranger/actions/runs/$id"
             activity.runOnUiThread {
                 if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
                 AlertDialog.Builder(activity)
@@ -149,7 +149,7 @@ class AppUpdater(private val activity: Activity) {
                 val checksumUrl = asset.getString("browser_download_url")
                 val expected = URL(checksumUrl)
                 require(expected.protocol == "https" && expected.host.equals("github.com", true) &&
-                    expected.path.startsWith("/itonkungx-x/Meowto-Ranger/releases/download/")) {
+                    expected.path.startsWith("/itonkungx-x/Easylineranger/releases/download/")) {
                     "แหล่งตรวจสอบไฟล์ไม่ถูกต้อง"
                 }
                 val sha = fetchJson(checksumUrl).trim().split(Regex("\\s+")).firstOrNull() ?: ""
