@@ -12,6 +12,15 @@ object RoutineStore {
     const val FARM = "farm"
 
     fun title(id: String) = if (id == DAILY) "ภารกิจประจำวัน" else "ฟาร์มด่าน"
+
+    /** Game day: LINE Rangers resets at 00:00 GMT+9. */
+    fun gameDay(now: Long = System.currentTimeMillis()) = (now + 9 * 3_600_000L) / 86_400_000L
+
+    fun markDone(context: Context, id: String) = context.getSharedPreferences("auto", Context.MODE_PRIVATE)
+        .edit().putLong("done_day_$id", gameDay()).apply()
+
+    fun doneToday(context: Context, id: String) =
+        context.getSharedPreferences("auto", Context.MODE_PRIVATE).getLong("done_day_$id", -1L) == gameDay()
     fun repeats(id: String) = id == FARM
 
     private fun file(context: Context, id: String) = File(context.filesDir, "routine_$id.json")

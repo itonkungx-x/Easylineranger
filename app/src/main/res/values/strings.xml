@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">Meowto Ranger</string>
-    <string name="accessibility_explanation">ช่วยกดปุ่มช่วยเหลือเพื่อนใน LINE Rangers ตามคำสั่งของผู้ใช้ ใช้จับภาพหน้าจอขณะเล่นเกมเท่านั้น และหยุดทำงานเมื่อออกจากเกม</string>
+    <string name="app_name">Easylineranger</string>
+    <string name="accessibility_explanation">Easylineranger ช่วยเล่น LINE Rangers ตามที่คุณสั่งหรือสอนไว้ จับภาพหน้าจอและแตะได้เฉพาะตอนที่ LINE Rangers อยู่หน้าจอ และปิดตัวเองเมื่อออกจากเกม</string>
 </resources>

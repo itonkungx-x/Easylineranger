@@ -7,18 +7,12 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Path
-import android.graphics.PixelFormat
-import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.Display
-import android.view.Gravity
-import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
-import android.widget.LinearLayout
-import android.widget.TextView
 import android.widget.Toast
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -29,6 +23,7 @@ import com.itonkung.meowtoranger.modules.routine.RoutineHost
 import com.itonkung.meowtoranger.modules.routine.RoutinePlayer
 import com.itonkung.meowtoranger.modules.routine.RoutineRecorder
 import com.itonkung.meowtoranger.modules.routine.RoutineStore
+import com.itonkung.meowtoranger.ui.FloatingMenu
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -68,15 +63,7 @@ class FriendAccessibilityService : AccessibilityService(), RoutineHost {
     private val prefs by lazy { getSharedPreferences("auto", Context.MODE_PRIVATE) }
     private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
     private var windowManager: WindowManager? = null
-    private var overlay: View? = null
-    private var overlayCount: TextView? = null
-    private var overlayDetail: TextView? = null
-    private var overlayGo: TextView? = null
-    private var overlayStop: TextView? = null
-    private val idleButtons = mutableListOf<View>()
-    private val teachChoiceButtons = mutableListOf<View>()
-    private val teachingButtons = mutableListOf<View>()
-    private var teachChoice = false
+    private var menu: FloatingMenu? = null
     private var recorder: RoutineRecorder? = null
     private var player: RoutinePlayer? = null
     /** "Do everything" queue: friend points, then daily routine, then stage farming. */
@@ -127,6 +114,7 @@ class FriendAccessibilityService : AccessibilityService(), RoutineHost {
         super.onServiceConnected()
         activeService = this
         hasSeenGame = false
+        prefs.edit().putBoolean("acc_seen", true).apply()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         saveState("พร้อมใช้งาน · ออกจากเกมแล้วจะปิดสิทธิ์อัตโนมัติ")
     }
@@ -216,126 +204,42 @@ class FriendAccessibilityService : AccessibilityService(), RoutineHost {
         super.onDestroy()
     }
 
-    private fun dp(x: Int): Int = (x * resources.displayMetrics.density + 0.5f).toInt()
-    private fun bg(color: Int, radius: Int, stroke: Int? = null): GradientDrawable = GradientDrawable().apply {
-        setColor(color)
-        cornerRadius = dp(radius).toFloat()
-        if (stroke != null) setStroke(dp(1), stroke)
-    }
-    private fun label(text: String, color: Int, size: Float, bold: Boolean = false): TextView =
-        TextView(this).apply {
-            this.text = text
-            setTextColor(color)
-            textSize = size
-            gravity = Gravity.CENTER
-            if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
-            includeFontPadding = false
-        }
-
     private fun showOverlay() {
-        if (overlay != null) return
-        val line = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(5), dp(8), dp(5))
-            background = bg(Color.rgb(23, 25, 31), 16, Color.rgb(67, 69, 77))
-            elevation = dp(4).toFloat()
-        }
-        val count = label("— / 50", Color.WHITE, 14f, true).apply {
-            minWidth = dp(53)
-        }
-        val detail = label("พร้อม", Color.rgb(255, 175, 57), 10f, true).apply {
-            setPadding(dp(5), 0, dp(8), 0)
-        }
-        val go = label("♥", Color.rgb(24, 20, 16), 19f, true).apply {
-            setPadding(dp(10), dp(8), dp(10), dp(8))
-            background = bg(Color.rgb(255, 173, 37), 12)
-            setOnClickListener { chain.clear(); startRun() }
-        }
-        val stop = label("■", Color.WHITE, 17f, true).apply {
-            setPadding(dp(10), dp(8), dp(10), dp(8))
-            background = bg(Color.rgb(197, 53, 62), 12)
-            setOnClickListener { stopEverything() }
-        }
-        fun small(text: String, color: Int, click: () -> Unit) = label(text, Color.WHITE, 15f, true).apply {
-            setPadding(dp(9), dp(8), dp(9), dp(8))
-            background = bg(color, 12)
-            setOnClickListener { click() }
-        }
-        val dark = Color.rgb(52, 56, 66)
-        idleButtons.clear(); teachChoiceButtons.clear(); teachingButtons.clear()
-        idleButtons += go
-        idleButtons += small("📋", dark) { chain.clear(); startRoutine(RoutineStore.DAILY) }
-        idleButtons += small("⚔", dark) { chain.clear(); startRoutine(RoutineStore.FARM) }
-        idleButtons += small("▶▶", Color.rgb(46, 140, 87)) { startAll() }
-        idleButtons += small("🎓", dark) { teachChoice = true; updateOverlay() }
-        teachChoiceButtons += small("สอน 📋", dark) { startTeach(RoutineStore.DAILY) }
-        teachChoiceButtons += small("สอน ⚔", dark) { startTeach(RoutineStore.FARM) }
-        teachChoiceButtons += small("✕", dark) { teachChoice = false; updateOverlay() }
-        teachingButtons += small("✓ บันทึก", Color.rgb(46, 140, 87)) { finishTeach(save = true) }
-        teachingButtons += small("✕", Color.rgb(197, 53, 62)) { finishTeach(save = false) }
-        overlayCount = count
-        overlayDetail = detail
-        overlayGo = go
-        overlayStop = stop
-        line.addView(count)
-        line.addView(detail)
-        for (b in idleButtons + teachChoiceButtons + teachingButtons)
-            line.addView(b, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(4) })
-        line.addView(stop, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(4) })
-        val lp = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            x = dp(12)
-            y = dp(64)
-        }
-        try {
-            windowManager?.addView(line, lp)
-            overlay = line
-            updateOverlay()
-        } catch (_: Exception) {
-            overlay = null
-            overlayCount = null
-            overlayDetail = null
-            overlayGo = null
-            overlayStop = null
-        }
+        if (menu != null) return
+        val wm = windowManager ?: return
+        val m = FloatingMenu(this, wm, prefs, object : FloatingMenu.Actions {
+            override fun friend() { chain.clear(); startRun() }
+            override fun daily() { chain.clear(); startRoutine(RoutineStore.DAILY) }
+            override fun farm() { chain.clear(); startRoutine(RoutineStore.FARM) }
+            override fun all() = startAll()
+            override fun teach(routineId: String) = startTeach(routineId)
+            override fun saveTeach() = finishTeach(save = true)
+            override fun cancelTeach() = finishTeach(save = false)
+            override fun stop() = stopEverything()
+        })
+        if (m.show()) { menu = m; updateOverlay() }
     }
 
     private fun hideOverlay() {
-        overlay?.let { try { windowManager?.removeView(it) } catch (_: Exception) { } }
-        overlay = null
-        overlayCount = null
-        overlayDetail = null
-        overlayGo = null
-        overlayStop = null
+        menu?.hide()
+        menu = null
     }
+
     private fun updateOverlay() {
+        val m = menu ?: return
         val rec = recorder
         val play = player
-        val busy = running || play != null
-        overlayCount?.text = "${used?.toString() ?: "?"}/$maxQuota"
-        overlayDetail?.text = when {
-            rec != null -> "● สอน ${rec.count}"
-            play != null -> "● ${play.label}"
-            teachChoice -> "สอนอะไร?"
-            !running -> "พร้อม"
-            phase == Phase.NAVIGATE -> "↩ กลับหน้าเพื่อน"
-            phase == Phase.RECOGNIZING -> "◌ ตรวจเลข"
-            phase == Phase.SCROLL_SETTLE -> "◌ รอเลื่อน"
-            else -> "● ทำงาน"
+        when {
+            rec != null -> m.render(FloatingMenu.Mode.TEACHING, "กำลังสอน", rec.count)
+            play != null -> m.render(FloatingMenu.Mode.BUSY, play.label, 0)
+            running -> m.render(FloatingMenu.Mode.BUSY, "ส่งคะแนน ${used?.toString() ?: "?"}/$maxQuota · " + when (phase) {
+                Phase.NAVIGATE -> "ไปหน้าเพื่อน"
+                Phase.RECOGNIZING -> "ตรวจโควต้า"
+                Phase.SCROLL_SETTLE -> "เลื่อนหาเพื่อน"
+                else -> "กำลังส่ง"
+            }, 0)
+            else -> m.render(FloatingMenu.Mode.IDLE, lastStatus.ifBlank { "พร้อม" }, 0)
         }
-        overlayDetail?.setTextColor(if (busy || rec != null) Color.rgb(107, 233, 148) else Color.rgb(255, 175, 57))
-        fun show(views: List<View>, on: Boolean) = views.forEach { it.visibility = if (on) View.VISIBLE else View.GONE }
-        show(idleButtons, !busy && rec == null && !teachChoice)
-        show(teachChoiceButtons, !busy && rec == null && teachChoice)
-        show(teachingButtons, rec != null)
-        overlayStop?.visibility = if (busy) View.VISIBLE else View.GONE
     }
     private fun saveState(message: String) {
         lastStatus = message
@@ -406,8 +310,9 @@ class FriendAccessibilityService : AccessibilityService(), RoutineHost {
         pendingHelpX = -1f
         // Consent remains valid when manually restarting the same authorized
         // session from the floating button. The user can revoke it in-app.
+        if ((used ?: -1) >= maxQuota) RoutineStore.markDone(this, "friend")
         saveState(reason)
-        if (old) toast("$reason • ส่งสำเร็จ $sent ครั้ง")
+        if (old) toast("$reason · ส่งสำเร็จ $sent ครั้ง")
         if (old) continueChain()
     }
 
@@ -417,7 +322,6 @@ class FriendAccessibilityService : AccessibilityService(), RoutineHost {
 
     private fun stopEverything() {
         chain.clear()
-        teachChoice = false
         player?.stop("ผู้ใช้กดหยุด")
         if (running) stopRun("ผู้ใช้กดหยุด")
         updateOverlay()
@@ -426,7 +330,6 @@ class FriendAccessibilityService : AccessibilityService(), RoutineHost {
     /** Stops teach/replay without saving or continuing the chain (leaving the game, service shutdown). */
     private fun endRoutineWork() {
         chain.clear()
-        teachChoice = false
         recorder?.close()
         recorder = null
         val p = player
@@ -439,7 +342,7 @@ class FriendAccessibilityService : AccessibilityService(), RoutineHost {
         if (prefs.getBoolean("consent", false)) chain.addLast("friend")
         if (RoutineStore.stepCount(this, RoutineStore.DAILY) > 0) chain.addLast(RoutineStore.DAILY)
         if (RoutineStore.stepCount(this, RoutineStore.FARM) > 0) chain.addLast(RoutineStore.FARM)
-        if (chain.isEmpty()) { toast("ยังไม่มีอะไรให้ทำ · อนุญาตส่ง LINE ในแอป หรือสอนบอทด้วย 🎓 ก่อน"); return }
+        if (chain.isEmpty()) { toast("ยังไม่มีอะไรให้ทำ · อนุญาตส่ง LINE ในแอป หรือสอนบอทก่อน (แตะน้องแมว > สอนบอท)"); return }
         continueChain()
     }
 
@@ -457,11 +360,12 @@ class FriendAccessibilityService : AccessibilityService(), RoutineHost {
         if (running || player != null || recorder != null) return false
         if (!gameInFront()) { toast("เปิด LINE Rangers ก่อน"); return false }
         val routine = RoutineStore.load(this, id)
-        if (routine == null) { toast("ยังไม่ได้สอน ${RoutineStore.title(id)} · กด 🎓 เพื่อสอน"); return false }
+        if (routine == null) { toast("ยังไม่ได้สอน ${RoutineStore.title(id)} · แตะน้องแมว > สอนบอท"); return false }
         lateinit var p: RoutinePlayer
-        p = RoutinePlayer(this, routine, onEnd = end@{ reason ->
+        p = RoutinePlayer(this, routine, onEnd = end@{ reason, finished ->
             if (player !== p) return@end
             player = null
+            if (finished) RoutineStore.markDone(this, id)
             saveState(reason)
             toast(reason)
             if (reason != "ผู้ใช้กดหยุด") continueChain()
@@ -473,9 +377,8 @@ class FriendAccessibilityService : AccessibilityService(), RoutineHost {
     }
 
     private fun startTeach(id: String) {
-        teachChoice = false
         if (running || player != null || recorder != null) return
-        if (!gameInFront()) { toast("เปิด LINE Rangers ก่อน"); updateOverlay(); return }
+        if (!gameInFront()) { toast("เปิด LINE Rangers ก่อน"); return }
         val wm = windowManager ?: return
         val rec = RoutineRecorder(this, wm, this, id)
         // The control bar must sit above the touch-catching layer, so re-add it after.
@@ -483,7 +386,7 @@ class FriendAccessibilityService : AccessibilityService(), RoutineHost {
         if (!rec.start()) { toast("เริ่มโหมดสอนไม่ได้"); showOverlay(); return }
         recorder = rec
         showOverlay()
-        saveState("สอน ${RoutineStore.title(id)} · เล่นตามปกติ แล้วกด ✓ บันทึก")
+        saveState("สอน ${RoutineStore.title(id)} · เล่นตามปกติ แล้วกด บันทึก")
         toast("เริ่มสอน ${RoutineStore.title(id)} · เริ่มจากหน้าหลักและจบที่หน้าหลัก")
     }
 
@@ -501,12 +404,12 @@ class FriendAccessibilityService : AccessibilityService(), RoutineHost {
     override fun later(ms: Long, block: () -> Unit) { handler.postDelayed(block, ms) }
 
     override fun grab(onFrame: (Img?) -> Unit) {
-        val bar = overlay
-        if (recorder == null || bar == null) { grabFrame(onFrame, 0); return }
-        // While teaching, keep the control bar out of the remembered button looks.
-        bar.visibility = View.INVISIBLE
+        val m = menu
+        if (recorder == null || m == null) { grabFrame(onFrame, 0); return }
+        // While teaching, keep the menu out of the remembered button looks.
+        m.setCaptureHidden(true)
         handler.postDelayed({
-            grabFrame({ frame -> bar.visibility = View.VISIBLE; onFrame(frame) }, 0)
+            grabFrame({ frame -> m.setCaptureHidden(false); onFrame(frame) }, 0)
         }, 50)
     }
 

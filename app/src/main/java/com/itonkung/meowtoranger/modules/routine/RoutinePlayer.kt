@@ -13,7 +13,8 @@ import kotlin.math.abs
 class RoutinePlayer(
     private val host: RoutineHost,
     private val routine: Routine,
-    private val onEnd: (String) -> Unit,
+    /** reason, finished = the routine actually got done (not stopped/failed). */
+    private val onEnd: (String, Boolean) -> Unit,
 ) {
     companion object {
         private const val SEARCH = 0.12f        // how far a button may have moved, in screen heights
@@ -46,10 +47,10 @@ class RoutinePlayer(
         tick(300)
     }
 
-    fun stop(reason: String) {
+    fun stop(reason: String, finished: Boolean = false) {
         if (!active) return
         active = false
-        onEnd(reason)
+        onEnd(reason, finished)
     }
 
     private fun tick(ms: Long) = host.later(ms) {
@@ -131,18 +132,18 @@ class RoutinePlayer(
     private fun advance(skipped: Boolean, delay: Long) {
         if (skipped) {
             skipsInRow++
-            if (round > 0 && index == 0) { stop("ฟาร์มเสร็จ $round รอบ"); return }
+            if (round > 0 && index == 0) { stop("ฟาร์มเสร็จ $round รอบ", finished = true); return }
             if (skipsInRow >= MAX_SKIPS) {
-                stop(if (round > 0) "ฟาร์มเสร็จ $round รอบ · ไม่พบขั้นที่ ${index + 1}"
-                    else "ไม่พบปุ่มขั้นที่ ${index + 1} · หยุดเพื่อความปลอดภัย")
+                if (round > 0) stop("ฟาร์มเสร็จ $round รอบ", finished = true)
+                else stop("ไม่พบปุ่มขั้นที่ ${index + 1} · หยุดเพื่อความปลอดภัย")
                 return
             }
         } else skipsInRow = 0
         index++
         if (index >= routine.steps.size) {
             round++
-            if (!routine.repeat) { stop("${RoutineStore.title(routine.id)} เสร็จแล้ว"); return }
-            if (round >= MAX_ROUNDS) { stop("ฟาร์มครบ $MAX_ROUNDS รอบ"); return }
+            if (!routine.repeat) { stop("${RoutineStore.title(routine.id)} เสร็จแล้ว", finished = true); return }
+            if (round >= MAX_ROUNDS) { stop("ฟาร์มครบ $MAX_ROUNDS รอบ", finished = true); return }
             index = 0
         }
         beginStep()

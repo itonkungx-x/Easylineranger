@@ -16,7 +16,7 @@ import java.security.MessageDigest
 import java.util.Locale
 
 /**
- * User-initiated updates from the official Meowto Ranger GitHub Releases feed.
+ * User-initiated updates from the official Easylineranger GitHub Releases feed.
  *
  * Android still owns installation confirmation. This is NOT a silent updater.
  * The Android installer enforces matching signing certificates.
@@ -72,7 +72,7 @@ class AppUpdater(private val activity: Activity) {
         for (i in 0 until assets.length()) {
             val asset = assets.getJSONObject(i)
             val name = asset.optString("name")
-            if (name.startsWith("Meowto-Ranger-") && name.endsWith(".apk")) {
+            if (name.startsWith("Easylineranger-") && name.endsWith(".apk")) {
                 downloadUrl = asset.getString("browser_download_url")
                 apkName = name
                 digest = asset.optString("digest")
@@ -89,7 +89,7 @@ class AppUpdater(private val activity: Activity) {
         activity.runOnUiThread {
             if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
             AlertDialog.Builder(activity)
-                .setTitle("Meowto Ranger $tag")
+                .setTitle("Easylineranger $tag")
                 .setMessage("เวอร์ชันปัจจุบัน: $installed\nพบรุ่นทางการที่ลงลายเซ็นแล้ว\nต้องการดาวน์โหลดและติดตั้งหรือไม่?")
                 .setNegativeButton("ภายหลัง", null)
                 .setPositiveButton("อัปเดต") { _, _ -> downloadAndInstall(downloadUrl, expectedDigest) }
@@ -164,7 +164,7 @@ class AppUpdater(private val activity: Activity) {
         Thread {
             try {
                 val directory = File(activity.cacheDir, "updates").apply { mkdirs() }
-                val apk = File(directory, "Meowto-Ranger-update.apk")
+                val apk = File(directory, "Easylineranger-update.apk")
                 val temporary = File(directory, "download.part")
                 val stream = openHttp(link)
                 val hash = MessageDigest.getInstance("SHA-256")
@@ -205,14 +205,14 @@ class AppUpdater(private val activity: Activity) {
     fun resumePendingInstall() {
         if (!pendingInstall.getBoolean("install_pending_permission", false)) return
         if (Build.VERSION.SDK_INT >= 26 && !activity.packageManager.canRequestPackageInstalls()) return
-        val apk = File(updatesDir, "Meowto-Ranger-update.apk")
+        val apk = File(updatesDir, "Easylineranger-update.apk")
         pendingInstall.edit().putBoolean("install_pending_permission", false).apply()
         if (!apk.isFile) return
         try {
             validatePackage(apk)
             AlertDialog.Builder(activity)
                 .setTitle("พร้อมติดตั้งอัปเดต")
-                .setMessage("ดาวน์โหลดเสร็จแล้ว ต้องการติดตั้ง Meowto Ranger รุ่นใหม่หรือไม่?")
+                .setMessage("ดาวน์โหลดเสร็จแล้ว ต้องการติดตั้ง Easylineranger รุ่นใหม่หรือไม่?")
                 .setNegativeButton("ภายหลัง", null)
                 .setPositiveButton("ติดตั้ง") { _, _ -> installApk(apk) }
                 .show()
@@ -224,7 +224,7 @@ class AppUpdater(private val activity: Activity) {
     private fun validatePackage(apk: File) {
         val archive = activity.packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
             ?: throw SecurityException("ไม่ใช่ไฟล์ Android APK ที่ถูกต้อง")
-        require(archive.packageName == activity.packageName) { "APK ไม่ใช่ Meowto Ranger" }
+        require(archive.packageName == activity.packageName) { "APK ไม่ใช่ Easylineranger" }
         val installed = activity.packageManager.getPackageInfo(activity.packageName, 0)
         require(archive.longVersionCode > installed.longVersionCode) {
             "เวอร์ชันอัปเดตต้องใหม่กว่าแอปที่ติดตั้ง"
@@ -234,7 +234,7 @@ class AppUpdater(private val activity: Activity) {
     private fun installApk(apk: File) {
         if (Build.VERSION.SDK_INT >= 26 && !activity.packageManager.canRequestPackageInstalls()) {
             pendingInstall.edit().putBoolean("install_pending_permission", true).apply()
-            toast("อนุญาตติดตั้งแอป แล้วกลับมาที่ Meowto Ranger")
+            toast("อนุญาตติดตั้งแอป แล้วกลับมาที่ Easylineranger")
             val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                 Uri.parse("package:${activity.packageName}"))
             activity.startActivity(intent)
@@ -261,7 +261,7 @@ class AppUpdater(private val activity: Activity) {
             readTimeout = 24000
             instanceFollowRedirects = true
             setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("User-Agent", "Meowto-Ranger-Android")
+            setRequestProperty("User-Agent", "Easylineranger-Android")
         }
         if (connection.responseCode !in 200..299) {
             val status = connection.responseCode

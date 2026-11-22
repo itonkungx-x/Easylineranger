@@ -1,6 +1,9 @@
 package com.itonkung.meowtoranger.modules.routine
 
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.os.SystemClock
 import android.view.MotionEvent
@@ -40,7 +43,7 @@ class RoutineRecorder(
     private var frameW = 0
     private var frameH = 0
     private var lastUpAt = 0L
-    private var catcher: View? = null
+    private var catcher: RingView? = null
     private val lp = WindowManager.LayoutParams(
         WindowManager.LayoutParams.MATCH_PARENT,
         WindowManager.LayoutParams.MATCH_PARENT,
@@ -55,7 +58,7 @@ class RoutineRecorder(
     val count get() = raw.size
 
     fun start(): Boolean {
-        val view = View(context)
+        val view = RingView(context)
         var downX = 0f; var downY = 0f; var downAt = 0L
         view.setOnTouchListener { _, e ->
             when (e.actionMasked) {
@@ -96,6 +99,7 @@ class RoutineRecorder(
         if (busy || closed) return
         val t = queue.removeFirstOrNull() ?: return
         busy = true
+        catcher?.ring(-1f, -1f) // keep the feedback ring out of the remembered look
         // Capture BEFORE passing the touch on, so the look is the button, not its result.
         host.grab { frame ->
             if (closed) return@grab
@@ -112,6 +116,8 @@ class RoutineRecorder(
 
     private fun passThrough(t: Touch) {
         val view = catcher ?: return
+        val b = wm.currentWindowMetrics.bounds
+        view.ring(t.x2 * b.width(), t.y2 * b.height())
         lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
         try { wm.updateViewLayout(view, lp) } catch (_: Exception) { }
         host.later(40) {
@@ -125,5 +131,22 @@ class RoutineRecorder(
             }
             if (t.moved) host.swipe(t.x, t.y, t.x2, t.y2, t.ms, done) else host.tap(t.x, t.y, done)
         }
+    }
+}
+
+/** Transparent touch catcher that draws a ring where the last taught tap landed. */
+private class RingView(context: Context) : View(context) {
+    private var rx = -1f
+    private var ry = -1f
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3f * context.resources.displayMetrics.density
+        color = Color.rgb(255, 180, 106)
+    }
+
+    fun ring(x: Float, y: Float) { rx = x; ry = y; invalidate() }
+
+    override fun onDraw(canvas: Canvas) {
+        if (rx >= 0f) canvas.drawCircle(rx, ry, 22f * resources.displayMetrics.density, paint)
     }
 }

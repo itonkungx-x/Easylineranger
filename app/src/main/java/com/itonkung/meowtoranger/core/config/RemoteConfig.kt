@@ -19,7 +19,7 @@ class RemoteConfig(context: Context) {
             val connection = (URL(source).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 8000
                 readTimeout = 8000
-                setRequestProperty("User-Agent", "Meowto-Ranger-Android")
+                setRequestProperty("User-Agent", "Easylineranger-Android")
             }
             try {
                 if (connection.responseCode != 200) return@Thread
